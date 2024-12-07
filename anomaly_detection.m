@@ -119,11 +119,19 @@ title('GNSS Data Points');
 xlabel('Longitude');
 ylabel('Latitude');
 
+% Mark SNR anomalies on the scatter plot
+snrAnomalyIndices = find(anomalies);
+scatter(longitudes(snrAnomalyIndices), latitudes(snrAnomalyIndices), 'go', 'LineWidth', 2); % Highlight SNR anomalies
+
+legend({'Data Points', 'Positional Anomalies', 'SNR Anomalies'});
+hold off;
+
 subplot(2, 1, 2);
-histogram(snrValues, 'FaceColor', 'b'); % Plot histogram of SNR values
+scatter(1:length(snrValues), snrValues, 'b'); % Plot SNR values
 hold on;
-histogram(snrValues(anomalies), 'FaceColor', 'r'); % Highlight anomalies in red
+scatter(snrAnomalyIndices, snrValues(anomalies), 'r', 'filled'); % Highlight SNR anomalies
 title('Signal-to-Noise Ratio (SNR) Analysis');
-xlabel('SNR (dB)');
-ylabel('Frequency');
+xlabel('Data Point Index');
+ylabel('SNR (dB)');
 legend({'SNR Values', 'Anomalies'});
+hold off;
