@@ -1,5 +1,9 @@
+%tuning
+threshold = 0.03; % in km (100 meters)
+
+
 % Specify the file path
-filePath = 'gnss_log_2024_11_18_14_17_21.nmea'; % Update with your file name
+filePath = 'gnss-data/gnss_log_2024_11_18_14_17_21.nmea'; % Update with your file name
 
 % Open the file and read the contents
 fileID = fopen(filePath, 'r');
@@ -62,12 +66,14 @@ end
 R = 6371; % Radius of the Earth in km
 haversineDist = @(lat1, lon1, lat2, lon2) R * acos(sin(deg2rad(lat1)) * sin(deg2rad(lat2)) + cos(deg2rad(lat1)) * cos(deg2rad(lat2)) * cos(deg2rad(lon2) - deg2rad(lon1)));
 
-threshold = 0.1; % in km (100 meters)
+% Initialize an array to store anomaly indices
+anomalyIndices = [];
 
 for i = 2:length(latitudes) % Start from the second data point
     dist = haversineDist(latitudes(i-1), longitudes(i-1), latitudes(i), longitudes(i)); % Calculate distance between consecutive points
     if dist > threshold
         fprintf('Anomaly detected between point %d and point %d. Distance: %.2f km\n', i-1, i, dist);
+        anomalyIndices = [anomalyIndices, i]; % Store the index of the anomaly
     end
 end
 
@@ -82,7 +88,10 @@ for i = 1:length(gpgsvData)
     fields = split(gpgsvData{i}, ','); % Split the sentence into fields
     for j = 8:4:length(fields) % SNR values start at the 8th field and repeat every 4 fields
         if j <= length(fields) && ~isempty(fields{j})
-            snrValues = [snrValues, str2double(fields{j})]; % Convert SNR to numeric and store
+            snrValue = str2double(fields{j}); % Convert SNR to numeric
+            if snrValue >= 0 && snrValue <= 50 % Filter out unreasonable SNR values
+                snrValues = [snrValues, snrValue]; % Store valid SNR values
+            end
         end
     end
 end
@@ -97,8 +106,6 @@ lowThreshold = meanSNR - 2 * stdSNR;
 anomalies = snrValues > highThreshold | snrValues < lowThreshold;
 
 % Display results
-disp('Extracted SNR Values:');
-disp(snrValues);
 disp('Anomalous SNR Values:');
 disp(snrValues(anomalies));
 
@@ -106,15 +113,17 @@ disp(snrValues(anomalies));
 figure;
 subplot(2, 1, 1);
 scatter(longitudes, latitudes, 'filled');
+hold on;
+scatter(longitudes(anomalyIndices), latitudes(anomalyIndices), 'rx', 'LineWidth', 2); % Highlight positional anomalies
 title('GNSS Data Points');
 xlabel('Longitude');
 ylabel('Latitude');
 
 subplot(2, 1, 2);
-plot(snrValues, 'o-'); % Plot all SNR values
+histogram(snrValues, 'FaceColor', 'b'); % Plot histogram of SNR values
 hold on;
-plot(find(anomalies), snrValues(anomalies), 'rx', 'LineWidth', 2); % Highlight anomalies
+histogram(snrValues(anomalies), 'FaceColor', 'r'); % Highlight anomalies in red
 title('Signal-to-Noise Ratio (SNR) Analysis');
-xlabel('Observation Index');
-ylabel('SNR (dB)');
-legend('SNR Values', 'Anomalies');
+xlabel('SNR (dB)');
+ylabel('Frequency');
+legend({'SNR Values', 'Anomalies'});
