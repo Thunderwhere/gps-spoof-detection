@@ -4,6 +4,8 @@ threshold = 0.03; % in km (100 meters)
 
 % Specify the file path
 filePath = 'gnss-data/gnss_log_2024_11_18_14_17_21.nmea'; % Update with your file name
+%filePath = 'spoofed_nmea_data.nmea';
+
 
 % Open the file and read the contents
 fileID = fopen(filePath, 'r');
@@ -89,6 +91,7 @@ for i = 1:length(gpgsvData)
     for j = 8:4:length(fields) % SNR values start at the 8th field and repeat every 4 fields
         if j <= length(fields) && ~isempty(fields{j})
             snrValue = str2double(fields{j}); % Convert SNR to numeric
+            allSnrValues = [snrValues, snrValue];
             if snrValue >= 0 && snrValue <= 50 % Filter out unreasonable SNR values
                 snrValues = [snrValues, snrValue]; % Store valid SNR values
             end
@@ -102,12 +105,18 @@ stdSNR = std(snrValues, 'omitnan');
 highThreshold = meanSNR + 2 * stdSNR;
 lowThreshold = meanSNR - 2 * stdSNR;
 
+% Display the calculated values
+    fprintf('Mean SNR: %.2f\n', meanSNR);
+    fprintf('Standard Deviation of SNR: %.2f\n', stdSNR);
+    fprintf('High Threshold: %.2f\n', highThreshold);
+    fprintf('Low Threshold: %.2f\n', lowThreshold);
+
 % Detect anomalies
-anomalies = snrValues > highThreshold | snrValues < lowThreshold;
+anomalies = allSnrValues > highThreshold | allSnrValues < lowThreshold;
 
 % Display results
 disp('Anomalous SNR Values:');
-disp(snrValues(anomalies));
+disp(allSnrValues(anomalies));
 
 % Plot the results
 figure;
@@ -127,9 +136,9 @@ legend({'Data Points', 'Positional Anomalies', 'SNR Anomalies'});
 hold off;
 
 subplot(2, 1, 2);
-scatter(1:length(snrValues), snrValues, 'b'); % Plot SNR values
+scatter(1:length(allSnrValues), allSnrValues, 'b'); % Plot SNR values
 hold on;
-scatter(snrAnomalyIndices, snrValues(anomalies), 'r', 'filled'); % Highlight SNR anomalies
+scatter(snrAnomalyIndices, allSnrValues(anomalies), 'r', 'filled'); % Highlight SNR anomalies
 title('Signal-to-Noise Ratio (SNR) Analysis');
 xlabel('Data Point Index');
 ylabel('SNR (dB)');
