@@ -25,11 +25,11 @@ function analyzeGNSSData(m, dataFile)
         {'GNSS Data', 'Positional Jump', 'Speed Anomaly', 'Altitude Anomaly', 'Time Interval Anomaly', 'Heading Change Anomaly'});
 
     % Base thresholds for detecting anomalies
-    baseJumpThreshold = 2; % Positional jump threshold in meters for walking
-    baseSpeedThreshold = 1.5; % Speed threshold in m/s for walking (e.g., 5.4 km/h)
-    baseAltitudeThreshold = 10; % Altitude change threshold in meters
-    baseTimeIntervalThreshold = 2; % Time interval threshold in seconds
-    baseHeadingChangeThreshold = 10; % Heading change threshold in degrees for walking
+    baseJumpThreshold = 2; % Positional jump threshold in meters
+    baseSpeedThreshold = 1.5; % Speed threshold in m/s for walking
+    baseAltitudeThreshold = 18; % Altitude change threshold in meters
+    baseTimeIntervalThreshold = 4; % Time interval threshold in seconds
+    baseHeadingChangeThreshold = 45; % Heading change threshold in degrees
 
     % Main loop for data processing
     try
@@ -38,33 +38,34 @@ function analyzeGNSSData(m, dataFile)
             while true
                 % Get the latest GNSS data
                 [lat, lon, timestamp, speed, course, alt, horizacc] = poslog(m);
-                processGNSSData(lat, lon, alt, timestamp, speed, course, h, jumpAnomalyPlot, speedAnomalyPlot, altitudeAnomalyPlot, timeAnomalyPlot, headingAnomalyPlot, ...
+                processGNSSData(lat, lon, alt, timestamp, speed, course, horizacc, h, jumpAnomalyPlot, speedAnomalyPlot, altitudeAnomalyPlot, timeAnomalyPlot, headingAnomalyPlot, ...
                     baseJumpThreshold, baseSpeedThreshold, baseAltitudeThreshold, baseTimeIntervalThreshold, baseHeadingChangeThreshold);
                 pause(1); % Pause for a short time to allow for real-time updates
             end
         else
             % Post-analysis mode
-            data = load(dataFile); % Load data from file
-            lat = data.lat;
-            lon = data.lon;
-            alt = data.alt;
-            timestamp = data.timestamp;
-            speed = data.speed;
-            course = data.course;
-            processGNSSData(lat, lon, alt, timestamp, speed, course, h, jumpAnomalyPlot, speedAnomalyPlot, altitudeAnomalyPlot, timeAnomalyPlot, headingAnomalyPlot, ...
-                baseJumpThreshold, baseSpeedThreshold, baseAltitudeThreshold, baseTimeIntervalThreshold, baseHeadingChangeThreshold);
+            nmeaData = fileread(dataFile); % Load NMEA data from file
+            nmeaSentences = strsplit(nmeaData, '\n'); % Split data into sentences
+
+            for i = 1:length(nmeaSentences)
+                sentence = nmeaSentences{i};
+                if startsWith(sentence, 'NMEA,$GPGGA') || startsWith(sentence, 'NMEA,$GNRMC')
+                    disp(['Parsing sentence: ', sentence]); % Log the sentence being parsed
+                    [lat, lon, timestamp, speed, course, alt, horizacc] = parseNMEASentence(sentence);
+                    disp(['Parsed data - Lat: ', num2str(lat), ', Lon: ', num2str(lon), ', Timestamp: ', timestamp, ...
+                          ', Speed: ', num2str(speed), ', Course: ', num2str(course), ', Altitude: ', num2str(alt), ...
+                          ', Horizontal Accuracy: ', num2str(horizacc)]); % Log the parsed data
+                    processGNSSData(lat, lon, alt, timestamp, speed, course, horizacc, h, jumpAnomalyPlot, speedAnomalyPlot, altitudeAnomalyPlot, timeAnomalyPlot, headingAnomalyPlot, ...
+                        baseJumpThreshold, baseSpeedThreshold, baseAltitudeThreshold, baseTimeIntervalThreshold, baseHeadingChangeThreshold);
+                end
+            end
         end
     catch ME
-        % Turn off logging and sensors when stopping the script
-        if nargin < 2
-            m.Logging = 0;
-            m.PositionSensorEnabled = 0;
-        end
-        rethrow(ME);
+        disp(['Error: ', ME.message]);
     end
 end
 
-function processGNSSData(lat, lon, alt, timestamp, speed, course, h, jumpAnomalyPlot, speedAnomalyPlot, altitudeAnomalyPlot, timeAnomalyPlot, headingAnomalyPlot, ...
+function processGNSSData(lat, lon, alt, timestamp, speed, course, horizacc, h, jumpAnomalyPlot, speedAnomalyPlot, altitudeAnomalyPlot, timeAnomalyPlot, headingAnomalyPlot, ...
     baseJumpThreshold, baseSpeedThreshold, baseAltitudeThreshold, baseTimeIntervalThreshold, baseHeadingChangeThreshold)
     % Parameters for smoothing
     windowSize = 5; % Adjust the window size as needed
@@ -92,20 +93,21 @@ function processGNSSData(lat, lon, alt, timestamp, speed, course, h, jumpAnomaly
             headingChange = 0;
         end
 
-        % Scale thresholds based on speed
-        jumpThreshold = baseJumpThreshold * (1 + speed(end) / baseSpeedThreshold);
-        headingChangeThreshold = baseHeadingChangeThreshold * (1 + speed(end) / baseSpeedThreshold);
+        % Scale thresholds based on speed and horizontal accuracy
+        jumpThreshold = baseJumpThreshold * (1 + speed(end) / baseSpeedThreshold) * (1 + horizacc(end) / 10);
+        headingChangeThreshold = baseHeadingChangeThreshold * (1 + speed(end) / baseSpeedThreshold) * (1 + horizacc(end) / 10);
+        dynamicSpeedThreshold = baseSpeedThreshold * (1 + speed(end) / baseSpeedThreshold) * (1 + horizacc(end) / 10);
 
         % Detect positional jumps
         if distances(end) > jumpThreshold
             % Update anomaly plot
             set(jumpAnomalyPlot, 'XData', [get(jumpAnomalyPlot, 'XData'), lon(end)], 'YData', [get(jumpAnomalyPlot, 'YData'), lat(end)]);
             % Log a message indicating an anomaly
-            disp(['Anomaly detected at latitude: ', num2str(lat(end)), ', longitude: ', num2str(lon(end))]);
+            disp(['Positional anomaly detected at latitude: ', num2str(lat(end)), ', longitude: ', num2str(lon(end))]);
         end
 
         % Detect unrealistic speeds
-        if speed(end) > baseSpeedThreshold
+        if speed(end) > dynamicSpeedThreshold
             % Update anomaly plot
             set(speedAnomalyPlot, 'XData', [get(speedAnomalyPlot, 'XData'), lon(end)], 'YData', [get(speedAnomalyPlot, 'YData'), lat(end)]);
             % Log a message indicating an anomaly
@@ -130,10 +132,13 @@ function processGNSSData(lat, lon, alt, timestamp, speed, course, h, jumpAnomaly
 
         % Detect unrealistic heading changes
         if headingChange > headingChangeThreshold
-            % Update anomaly plot
-            set(headingAnomalyPlot, 'XData', [get(headingAnomalyPlot, 'XData'), lon(end)], 'YData', [get(headingAnomalyPlot, 'YData'), lat(end)]);
-            % Log a message indicating an anomaly
-            disp(['Heading change anomaly detected at latitude: ', num2str(lat(end)), ', longitude: ', num2str(lon(end)), ', heading change: ', num2str(headingChange), ' degrees']);
+            % Validate heading change with course data
+            if abs(headingChange - course(end)) > headingChangeThreshold
+                % Update anomaly plot
+                set(headingAnomalyPlot, 'XData', [get(headingAnomalyPlot, 'XData'), lon(end)], 'YData', [get(headingAnomalyPlot, 'YData'), lat(end)]);
+                % Log a message indicating an anomaly
+                disp(['Heading change anomaly detected at latitude: ', num2str(lat(end)), ', longitude: ', num2str(lon(end)), ', heading change: ', num2str(headingChange), ' degrees']);
+            end
         end
 
         % Update the plot with new data
@@ -155,4 +160,50 @@ end
 % Function to apply a moving average to data
 function smoothedData = movingAverage(data, windowSize)
     smoothedData = filter(ones(1, windowSize) / windowSize, 1, data);
+end
+
+function [lat, lon, timestamp, speed, course, alt, horizacc] = parseNMEASentence(sentence)
+    % Remove the "NMEA," prefix
+    sentence = strrep(sentence, 'NMEA,', '');
+
+    % Parse NMEA sentence and extract relevant data
+    if startsWith(sentence, '$GPGGA')
+        % Example parsing for GPGGA sentence
+        parts = strsplit(sentence, ',');
+        lat = nmeaToDecimal(parts{3}, parts{4});
+        lon = nmeaToDecimal(parts{5}, parts{6});
+        alt = str2double(parts{10});
+        timestamp = parts{2};
+        horizacc = str2double(parts{9});
+        speed = NaN;
+        course = NaN;
+    elseif startsWith(sentence, '$GNRMC')
+        % Example parsing for GNRMC sentence
+        parts = strsplit(sentence, ',');
+        lat = nmeaToDecimal(parts{4}, parts{5});
+        lon = nmeaToDecimal(parts{6}, parts{7});
+        speed = str2double(parts{8}) * 0.514444; % Convert knots to m/s
+        course = str2double(parts{9});
+        timestamp = parts{2};
+        alt = NaN;
+        horizacc = NaN;
+    else
+        lat = NaN;
+        lon = NaN;
+        timestamp = NaN;
+        speed = NaN;
+        course = NaN;
+        alt = NaN;
+        horizacc = NaN;
+    end
+end
+
+function decimal = nmeaToDecimal(coord, direction)
+    % Convert NMEA coordinate format to decimal degrees
+    degrees = floor(str2double(coord) / 100);
+    minutes = mod(str2double(coord), 100);
+    decimal = degrees + minutes / 60;
+    if direction == 'S' || direction == 'W'
+        decimal = -decimal;
+    end
 end
