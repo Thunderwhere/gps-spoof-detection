@@ -1,65 +1,75 @@
-function generateSpoofedNMEA(numSentences, outputFile)
-    % Generate spoofed NMEA data
-    % numSentences: Number of NMEA sentences to generate
-    % outputFile: File to save the generated NMEA data
+% FILE: generateSpoofedNMEA.m
 
-    % Open the output file
-    fid = fopen(outputFile, 'w');
-    if fid == -1
-        error('Cannot open output file.');
+% Number of data points to generate
+numPoints = 100;
+
+% Base values for spoofed data
+baseLat = 42.3223; % Example latitude
+baseLon = -83.1763; % Example longitude
+baseSpeed = 3; % Speed in m/s
+baseAltitude = 130; % Altitude in meters
+baseHeading = 90; % Heading in degrees
+
+% Thresholds for anomalies
+baseSpeedThreshold = 15;
+baseAltitudeThreshold = 20;
+baseTimeIntervalThreshold = 5;
+baseHeadingChangeThreshold = 45;
+baseSNRThreshold = 30; % SNR threshold for anomalies
+positionalAnomalyThreshold = 0.001; % Positional anomaly threshold in degrees
+
+% Generate spoofed NMEA data
+nmeaData = cell(numPoints * 2, 1); % Allocate space for both GPGGA and GPGSV sentences
+for i = 1:numPoints
+    % Simulate movement in one direction (eastward)
+    lat = baseLat + (i - 1) * 0.0001; % Increment latitude slightly
+    lon = baseLon + (i - 1) * 0.0001; % Increment longitude slightly
+    speed = baseSpeed + (rand - 0.5) * 2; % Small random variation in speed
+    altitude = baseAltitude + (rand - 0.5) * 5; % Small random variation in altitude
+    heading = baseHeading + (rand - 0.5) * 10; % Small random variation in heading
+    timestamp = datestr(now + (i-1)/1440, 'HHMMSS'); % Increment time by 1 minute
+
+    % Introduce anomalies based on thresholds
+    if rand < 0.1 % 10% chance to introduce a speed anomaly
+        speed = baseSpeedThreshold + (rand * 10);
+    end
+    if rand < 0.1 % 10% chance to introduce an altitude anomaly
+        altitude = baseAltitude + baseAltitudeThreshold + (rand * 10);
+    end
+    if rand < 0.1 % 10% chance to introduce a heading change anomaly
+        heading = baseHeading + baseHeadingChangeThreshold + (rand * 20);
+    end
+    if rand < 0.1 % 10% chance to introduce a positional anomaly
+        lat = lat + (rand - 0.5) * positionalAnomalyThreshold;
+        lon = lon + (rand - 0.5) * positionalAnomalyThreshold;
     end
 
-    % Generate random NMEA sentences
-    for i = 1:numSentences
-        % Generate random latitude and longitude
-        lat_deg = randi([0, 89]);
-        lat_min = rand() * 60;
-        lon_deg = randi([0, 179]);
-        lon_min = rand() * 60;
+    % Create GPGGA sentence
+    gpggaSentence = sprintf('$GPGGA,%s,%02.5f,N,%03.5f,W,1,08,0.9,%0.1f,M,0.0,M,,*47', ...
+        timestamp, lat, lon, altitude);
+    nmeaData{2*i-1} = gpggaSentence;
 
-        % Randomly decide if the latitude is North or South
-        if rand() > 0.5
-            lat_dir = 'N';
-        else
-            lat_dir = 'S';
+    % Generate GPGSV sentence
+    numSatellites = 8; % Example number of satellites
+    gpgsvSentence = sprintf('$GPGSV,3,%d,%02d', ceil(numSatellites/4), numSatellites);
+    for j = 1:numSatellites
+        elevation = randi([0, 90]); % Random elevation angle
+        azimuth = randi([0, 359]); % Random azimuth angle
+        snr = randi([20, 50]); % Random SNR value
+        if rand < 0.1 % 10% chance to introduce an SNR anomaly
+            snr = baseSNRThreshold + randi([10, 20]);
         end
-
-        % Randomly decide if the longitude is East or West
-        if rand() > 0.5
-            lon_dir = 'E';
-        else
-            lon_dir = 'W';
-        end
-
-        % Format the latitude and longitude as strings
-        lat_str = sprintf('%02d%07.4f', lat_deg, lat_min);
-        lon_str = sprintf('%03d%07.4f', lon_deg, lon_min);
-
-        % Create a spoofed $GNGGA sentence
-        gnggaSentence = sprintf('NMEA,$GNGGA,191722.00,%s,%s,%s,%s,1,12,0.4,185.6,M,-35.1,M,,*4F,1731957441996', lat_str, lat_dir, lon_str, lon_dir);
-        fprintf(fid, '%s\n', gnggaSentence);
-
-        % Create a spoofed $GPGSV sentence with random SNR values
-        numSatellites = randi([1, 12]); % Random number of satellites
-        numMessages = ceil(numSatellites / 4);
-        for msgIdx = 1:numMessages
-            gpgsvSentence = sprintf('NMEA,$GPGSV,%d,%d,%02d', numMessages, msgIdx, numSatellites);
-            for satIdx = 1:min(4, numSatellites - (msgIdx - 1) * 4)
-                prn = randi([1, 32]); % Satellite PRN number
-                elevation = randi([0, 90]); % Elevation in degrees
-                azimuth = randi([0, 359]); % Azimuth in degrees
-                snr = randi([0, 50]); % SNR in dB
-                gpgsvSentence = sprintf('%s,%02d,%02d,%03d,%02d', gpgsvSentence, prn, elevation, azimuth, snr);
-            end
-            checksum = mod(sum(double(gpgsvSentence(6:end))), 256);
-            gpgsvSentence = sprintf('%s*%02X,1731957441996', gpgsvSentence, checksum);
-            fprintf(fid, '%s\n', gpgsvSentence);
-        end
+        gpgsvSentence = sprintf('%s,%02d,%03d,%03d,%02d', gpgsvSentence, j, elevation, azimuth, snr);
     end
-
-    % Close the output file
-    fclose(fid);
+    gpgsvSentence = sprintf('%s*%02X', gpgsvSentence, mod(sum(double(gpgsvSentence(2:end))), 256)); % Add checksum
+    nmeaData{2*i} = gpgsvSentence;
 end
 
-% Example usage:
-generateSpoofedNMEA(100, 'spoofed_nmea_data.nmea');
+% Save the spoofed NMEA data to a text file
+fileID = fopen('spoofedNMEA.txt', 'w');
+for i = 1:length(nmeaData)
+    fprintf(fileID, '%s\n', nmeaData{i});
+end
+fclose(fileID);
+
+disp('Spoofed NMEA data generated and saved to spoofedNMEA.txt');

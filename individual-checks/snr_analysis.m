@@ -1,5 +1,5 @@
 % Specify the file path
-filePath = 'gnss_log_2024_10_27_11_47_14.nmea'; % Update with your file name
+filePath = 'spoofedNMEA.txt';
 
 % Open the file and read the contents
 fileID = fopen(filePath, 'r');
@@ -26,9 +26,12 @@ for i = 1:length(gpgsvData)
     end
 end
 
+% Filter SNR values to include only those between 1 and 50
+validSNRValues = snrValues(snrValues >= 1 & snrValues <= 50);
+
 % Analyze SNR anomalies
-meanSNR = mean(snrValues, 'omitnan');
-stdSNR = std(snrValues, 'omitnan');
+meanSNR = mean(validSNRValues, 'omitnan');
+stdSNR = std(validSNRValues, 'omitnan');
 highThreshold = meanSNR + 2 * stdSNR;
 lowThreshold = meanSNR - 2 * stdSNR;
 
@@ -36,8 +39,6 @@ lowThreshold = meanSNR - 2 * stdSNR;
 anomalies = snrValues > highThreshold | snrValues < lowThreshold;
 
 % Display results
-disp('Extracted SNR Values:');
-disp(snrValues);
 disp('Anomalous SNR Values:');
 disp(snrValues(anomalies));
 
